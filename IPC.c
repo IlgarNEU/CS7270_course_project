@@ -83,6 +83,7 @@ int initiate_communication(int process_id) {
 }
 
 int send_msg(int sender_id, int receiver_id, const char *msg) {
+    (void)sender_id;
     struct sockaddr_un addr;
     char sock_path[108];
     int fd;
@@ -124,7 +125,7 @@ int send_msg(int sender_id, int receiver_id, const char *msg) {
         perror("sendto");
         return -1;
     }
-
+    printf("[IPC] Process %d → Process %d: %s\n", sender_id, receiver_id, msg);
     return 0;
 }
 

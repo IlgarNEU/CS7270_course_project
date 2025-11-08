@@ -3,7 +3,7 @@ CFLAGS = -Wall -Wextra -g -I.
 LDFLAGS = -lm
 
 # Adjust this path to where your bloom library is located
-BLOOM_DIR = ./bloom
+BLOOM_DIR = ./
 BLOOM_SRC = $(BLOOM_DIR)/bloom.c
 BLOOM_INC = -I$(BLOOM_DIR)
 

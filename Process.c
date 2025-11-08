@@ -25,6 +25,18 @@ int *peer_bloom_received = NULL;
 
 int comm_fd = -1;
 
+
+void signal_handler(int signum);
+int check_own_keys(int key);
+void assign_keys_from_message(const char *msg);
+void create_own_bloom_filter();
+void broadcast_bloom_filter();
+void update_peer_bloom_filter(int peer_id, const char *bloom_data);
+void handle_query_from_manager(const char *msg);
+void handle_bloom_message(const char *msg);
+void handle_query_from_process(const char *msg);
+
+
 // Signal handler for cleanup
 void signal_handler(int signum) {
     printf("\n[Process %d] Received signal %d, cleaning up...\n", process_id, signum);
