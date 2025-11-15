@@ -1,30 +1,24 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -g -I.
+CFLAGS = -Wall -Wextra -O3 -I.
 LDFLAGS = -lm
 
-# Adjust this path to where your bloom library is located
 BLOOM_DIR = ./
 BLOOM_SRC = $(BLOOM_DIR)/bloom.c
 BLOOM_INC = -I$(BLOOM_DIR)
 
-# Object files
 OBJ_IPC = IPC.o
 OBJ_BLOOM = bloom.o
 OBJ_PROCESS = process.o
 OBJ_MANAGER = manager.o
 
-# Targets
 all: manager process
 
-# Manager executable
 manager: $(OBJ_MANAGER) $(OBJ_IPC)
 	$(CC) $(CFLAGS) -o manager $(OBJ_MANAGER) $(OBJ_IPC) $(LDFLAGS)
 
-# Process executable
 process: $(OBJ_PROCESS) $(OBJ_IPC) $(OBJ_BLOOM)
 	$(CC) $(CFLAGS) -o process $(OBJ_PROCESS) $(OBJ_IPC) $(OBJ_BLOOM) $(LDFLAGS)
 
-# Compile object files
 manager.o: manager.c IPC.h
 	$(CC) $(CFLAGS) -c manager.c
 
@@ -37,19 +31,9 @@ IPC.o: IPC.c IPC.h
 bloom.o: $(BLOOM_SRC)
 	$(CC) $(CFLAGS) $(BLOOM_INC) -c $(BLOOM_SRC) -o bloom.o
 
-# Clean up
 clean:
 	rm -f *.o manager process
-	rm -rf /tmp/dist_cache_sockets
+	rm -rf /tmp/distributed_cache_sockets
+	rm -f /tmp/bloom_process_*.dat
 
-# Run
-run: all
-	./manager
-
-# For debugging
-debug: CFLAGS += -DDEBUG
-debug: clean all
-
-.PHONY: all clean run debug
-
-
+.PHONY: all clean

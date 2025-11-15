@@ -34,6 +34,8 @@ static void make_nonblocking(int fd){
     }
 }
 
+
+//The recvbuf set to 1mb, but we may need to adapt according to our benchmarking
 int initiate_communication(int process_id){
     char sock_path[108];
     struct sockaddr_un addr;
@@ -55,7 +57,7 @@ int initiate_communication(int process_id){
         exit(EXIT_FAILURE);
     }
 
-    int rcvbuf = 262144;
+    int rcvbuf = 1048576; 
     if(setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) < 0){
         perror("[ERROR HAPPENED] : Error happened when increasing the socket size");
     }
@@ -85,7 +87,7 @@ int send_msg(int sender_id, int receiver_id, const char *msg){
     size_t msg_len = strlen(msg) + 1;
 
     if(msg_len > 65000){
-        fprintf(stderr, "[ERROR HAPPENED] : Meesage size is too large");
+        fprintf(stderr, "[ERROR HAPPENED] : Message size is too large");
         return -1;
     }
 
