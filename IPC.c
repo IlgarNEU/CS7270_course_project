@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 
 #define SOCKET_DIR "/tmp/distributed_cache_sockets"
-#define MAX_PROCESSES 16
+#define MAX_PROCESSES 64
 
 static int sender_sockets[MAX_PROCESSES];
 static int sender_sockets_initialized = 0;

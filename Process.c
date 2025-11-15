@@ -10,7 +10,7 @@
 
 
 #define MAX_KEYS 250000       //Need to discuss this with Professor for proper calculation
-#define MAX_PROCESSES 16
+#define MAX_PROCESSES 64
 #define BUF_SIZE 256          //Need to discuss this with Professor for proper calculation
 #define BLOOM_MSG_SIZE 262144 //Need to discuss this with Professor for proper calculation
 #define FALSE_POSITIVE_RATE 0.01 //Need to check this on GitHub and ask Professor for proper calculation

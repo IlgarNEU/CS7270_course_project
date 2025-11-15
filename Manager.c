@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 199309L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,12 +8,13 @@
 #include <time.h>
 #include "IPC.h"
 
+
 #define MAX_MSG_LEN 65536 //NEED TO check if it works for our benchmark, it is set to 64kb, the max unix dgram size
 #define BLOOM_EXCHANGE_TIME 30 //MAY NEED TO adapt, I did this for a safe threshold
 #define MAX_KEYS_PER_CHUNK 7000
 
-int num_processes = 4; //Change this for tests
-int keys_per_process = 2500000; //NEEd to change this too if needed
+int num_processes = 64; //Change this for tests
+int keys_per_process = 156250; //NEEd to change this too if needed
 
 pid_t *process_pids;
 int manager_fd;
@@ -200,102 +202,139 @@ int main(){
     create_random_keys();
     assign_random_keys_chuncked();
 
-    printf("Manager is starting query part\n");
-    
+    printf("\n═══════════════════════════════════════════════════\n");
+    printf("  QUERY PHASE - Testing Bloom Filter Routing\n");
+    printf("  Processes: %d, False Positive Rate: 1%%\n", num_processes);
+    printf("═══════════════════════════════════════════════════\n\n");
 
     char response_buf[MAX_MSG_LEN];
-    int num_queries = 100; //We need to change this when testing really
+    int num_queries = 100;
 
     query_trackers = calloc(num_queries, sizeof(QueryTracker));
     num_queries_total = num_queries;
 
-    time_t query_start = time(NULL);
-    
+    struct timespec *query_start_times = calloc(num_queries, sizeof(struct timespec));
+    struct timespec *query_end_times = calloc(num_queries, sizeof(struct timespec));
 
+    // ✅ Send all queries first WITHOUT waiting
+    printf("[Manager] Sending all %d queries...\n", num_queries);
     for(int i = 0; i < num_queries; i++){
         char query_msg[MAX_MSG_LEN];
-
+        
         int key_index = rand() % total_keys;
         int query_key = all_keys[key_index];
-
         int actual_process = key_index / keys_per_process;
-
+        
         int target_process;
-
-        do{
+        do {
             target_process = rand() % num_processes;
-        } while(target_process == actual_process);
-
-
-        printf("[Query %d] Key %d (in Process %d) queried via Process %d → ", 
-               i + 1, query_key, actual_process, target_process);
-
+        } while (target_process == actual_process);
+        
         query_trackers[i].key = query_key;
         query_trackers[i].answered = 0;
-
+        
+        clock_gettime(CLOCK_MONOTONIC, &query_start_times[i]);
+        
         snprintf(query_msg, sizeof(query_msg), "QUERY:%d", query_key);
         send_msg(num_processes, target_process, query_msg);
-
-        usleep(10000);
-
-
-        int response_count = 0;
-        while(response_count < 5){
-            int n = receive_msg(manager_fd, response_buf, sizeof(response_buf));
-            if(n>0){
-               handle_process_response(response_buf);
-               break;
-            }
-            usleep(5000);
-            response_count++;
-        }
-
-       
+        
+        // ✅ Minimal delay between sends
+        usleep(100);  // 0.1ms
     }
 
-    printf("\nWaiting for final responses\n");
-    sleep(2);
+    printf("[Manager] All queries sent. Collecting responses...\n\n");
 
-    while(1){
+    // ✅ Now collect responses and time them
+    int responses_collected = 0;
+    int max_wait_iterations = 10000;  // ~10 seconds max
+    int iterations = 0;
+
+    while(responses_collected < num_queries && iterations < max_wait_iterations) {
         int n = receive_msg(manager_fd, response_buf, sizeof(response_buf));
-        if(n<=0) break;
-        handle_process_response(response_buf);
+        if(n > 0){
+            // Find which query this response is for
+            int response_key = -1;
+            if(strncmp(response_buf, "FOUND:", 6) == 0){
+                response_key = atoi(response_buf + 6);
+            } else if(strncmp(response_buf, "NOTFOUND:", 9) == 0){
+                response_key = atoi(response_buf + 9);
+            }
+            
+            // ✅ Time the response
+            for (int i = 0; i < num_queries; i++) {
+                if (query_trackers[i].key == response_key && !query_trackers[i].answered) {
+                    clock_gettime(CLOCK_MONOTONIC, &query_end_times[i]);
+                    query_trackers[i].answered = 1;
+                    responses_collected++;
+                    
+                    double elapsed_ms = (query_end_times[i].tv_sec - query_start_times[i].tv_sec) * 1000.0 +
+                                    (query_end_times[i].tv_nsec - query_start_times[i].tv_nsec) / 1000000.0;
+                    
+                    if (i < 10) {  // Print first 10 for debugging
+                        printf("  Query %d: %.2f ms\n", i+1, elapsed_ms);
+                    }
+                    
+                    break;
+                }
+            }
+            
+            handle_process_response(response_buf);
+        }
+        
+        usleep(100);  // 0.1ms between polls
+        iterations++;
     }
 
-    int found_count = 0;
-    int not_found_count = 0;
-    int unanswered = 0;
+    printf("\n[Manager] Collected %d/%d responses\n", responses_collected, num_queries);
 
-    for(int i = 0; i < num_queries; i++){
-        if(query_trackers[i].answered){
-            found_count++;
-        } else{
-            unanswered++;
+    // Calculate statistics
+    double total_query_time_ms = 0;
+    double min_time = 999999.0;
+    double max_time = 0.0;
+    int queries_with_timing = 0;
+
+    for (int i = 0; i < num_queries; i++) {
+        if (query_trackers[i].answered) {
+            double elapsed_ms = (query_end_times[i].tv_sec - query_start_times[i].tv_sec) * 1000.0 +
+                            (query_end_times[i].tv_nsec - query_start_times[i].tv_nsec) / 1000000.0;
+            total_query_time_ms += elapsed_ms;
+            queries_with_timing++;
+            
+            if (elapsed_ms < min_time) min_time = elapsed_ms;
+            if (elapsed_ms > max_time) max_time = elapsed_ms;
         }
     }
-    
-    time_t query_end = time(NULL);
+
+    int found_count = queries_with_timing;
+    int not_found_count = 0;
+    int unanswered = num_queries - queries_with_timing;
+
     time_t total_end = time(NULL);
 
     printf("\n═══════════════════════════════════════════════════\n");
-    printf("  BENCHMARK RESULTS\n");
+    printf("  BENCHMARK RESULTS (%d Processes)\n", num_processes);
     printf("═══════════════════════════════════════════════════\n");
-    printf("  Total keys in cache: %d\n", total_keys);
-    printf("  Queries sent: %d\n", num_queries);
-    printf("  Queries answered: %d\n", found_count);
-    printf("  Queries unanswered: %d\n", unanswered);
-    printf("  Keys found: %d (should be %d)\n", found_count, num_queries);
-    printf("  Keys not found: %d (should be 0)\n", not_found_count);
-    printf("  Query time: %ld seconds\n", query_end - query_start);
-    printf("  Avg query time: %.2f ms\n", 
-           (query_end - query_start) * 1000.0 / num_queries);
-    printf("  Total runtime: %ld seconds\n", total_end - total_start);
-    printf("  Bloom filter effectiveness: %.1f%% (queries routed via bloom)\n",
-           100.0);
+    printf("  Configuration:\n");
+    printf("    Processes: %d\n", num_processes);
+    printf("    Keys per process: %d\n", keys_per_process);
+    printf("    Total keys: %d\n", total_keys);
+    printf("    False positive rate: 1%%\n");
+    printf("  \n");
+    printf("  Query Results:\n");
+    printf("    Queries sent: %d\n", num_queries);
+    printf("    Queries answered: %d\n", found_count);
+    printf("    Queries unanswered: %d\n", unanswered);
+    printf("  \n");
+    printf("  Performance:\n");
+    printf("    Avg query time: %.2f ms\n", 
+        queries_with_timing > 0 ? total_query_time_ms / queries_with_timing : 0);
+    printf("    Min query time: %.2f ms\n", min_time);
+    printf("    Max query time: %.2f ms\n", max_time);
+    printf("    Total runtime: %ld seconds\n", total_end - total_start);
     printf("═══════════════════════════════════════════════════\n\n");
-
-    for(int i = 0; i < num_processes; i++){
-        kill(process_pids[i], SIGTERM);
+    
+   for(int i = 0; i < num_processes; i++){
+    kill(process_pids[i], SIGTERM);
     }
 
     for(int i = 0; i < num_processes; i++){
@@ -305,6 +344,18 @@ int main(){
     close_communication(num_processes, manager_fd);
     free(all_keys);
     free(process_pids);
-    printf("Manager shutdown complete");
+    free(query_trackers);
+
+    // ✅ ADD THESE TWO LINES HERE:
+    free(query_start_times);
+    free(query_end_times);
+
+    for (int p = 0; p < num_processes; p++) {
+        free(process_keys[p]);
+    }
+    free(process_keys);
+    free(process_key_counts);
+
+    printf("Manager shutdown complete\n");
     return 0;
 }
